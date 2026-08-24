@@ -97,7 +97,7 @@ class AgentReputationLedger(gl.Contract):
         verified = gl.vm.run_nondet_unsafe(leader, validator)
         return verified["decision"]
 
-    @gl.public.write
+    @gl.public.write.payable
     def register(self) -> None:
         minimum_stake = u256(1000000000000000000)
         sender = gl.message.sender_address.as_hex
