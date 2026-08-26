@@ -60,6 +60,11 @@ class AgentReputationLedger(gl.Contract):
     agents: TreeMap[str, AgentRecord]
     used_evidence: TreeMap[str, str]
 
+    def __init__(self):
+        self.jobs = TreeMap[str, Job]()
+        self.agents = TreeMap[str, AgentRecord]()
+        self.used_evidence = TreeMap[str, str]()
+
     # ---------- time (deterministic per Transaction Context docs) ----------
 
     def _now(self) -> int:
