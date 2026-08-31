@@ -439,7 +439,7 @@ class AgentReputationLedger(gl.Contract):
     def createJob(
         self,
         job_id: str,
-        agent: Address,
+        agent: str,
         repo_url: str,
         commit_hash: str,
         test_command: str,
@@ -453,15 +453,14 @@ class AgentReputationLedger(gl.Contract):
             raise gl.vm.UserError(f"Job {job_id} already exists.")
         if not repo_url.startswith("http"):
             raise gl.vm.UserError("repo_url must be http(s)")
-        repo_key = f"{repo_url}:{commit_hash}"
-        if self.used_repos.get(repo_key, "") == "1":
-            raise gl.vm.UserError(f"Repository {repo_key} already used.")
+        if self.used_repos.get(f"{repo_url}:{commit_hash}", "") == "1":
+            raise gl.vm.UserError(f"Repository {repo_url}:{commit_hash} already used.")
         if int(deadline) <= self._now():
             raise gl.vm.UserError("deadline must be in the future")
 
         self.jobs[job_id] = Job(
             issuer=sender,
-            agent=Address(agent).as_hex,
+            agent=agent,
             deliverable=CodeDeliverable(
                 repo_url=repo_url,
                 commit_hash=commit_hash,
@@ -473,7 +472,7 @@ class AgentReputationLedger(gl.Contract):
             verdict="",
             final_score=u256(0)
         )
-        self.used_repos[repo_key] = "1"
+        self.used_repos[f"{repo_url}:{commit_hash}"] = "1"
 
     @gl.public.write
     def resolve(self, job_id: str) -> str:
@@ -543,8 +542,8 @@ class AgentReputationLedger(gl.Contract):
     # ---------- views ----------
 
     @gl.public.view
-    def get_reputation(self, agent: str) -> str:
-        agent_hex = agent
+    def get_reputation(self, agent) -> str:
+        agent_hex = agent.as_hex if hasattr(agent, 'as_hex') else str(agent)
         rec = self.agents.get(agent_hex, None)
         if rec is None:
             return json.dumps({
