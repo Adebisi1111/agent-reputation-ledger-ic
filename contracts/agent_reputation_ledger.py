@@ -72,6 +72,13 @@ class AgentReputationLedger(gl.Contract):
 
     # ---------- reputation ----------
 
+    # ---------- time (deterministic per Transaction Context docs) ----------
+
+    def _now(self) -> int:
+        return int(datetime.now(timezone.utc).timestamp())
+
+    # ---------- reputation ----------
+
     def _repute(self, r: AgentRecord) -> dict:
         """Stake weighted by completion ratio.
 
