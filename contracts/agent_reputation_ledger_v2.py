@@ -424,8 +424,6 @@ class AgentReputationLedger(gl.Contract):
     @gl.public.write.payable
     def register(self) -> None:
         sender = gl.message.sender_address.as_hex
-        if int(gl.message.value) < MIN_STAKE:
-            raise gl.vm.UserError("Stake below minimum (1 GEN)")
         rec = self.agents.get(sender, None)
         if rec is None:
             rec = AgentRecord(
