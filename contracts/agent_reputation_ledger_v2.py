@@ -1,3 +1,5 @@
+# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+
 # Agent Reputation Ledger v2 — Multi-Dimensional Code Verification
 #
 # This contract implements a reputation system for autonomous agent code delivery.
@@ -73,7 +75,7 @@ class CodeDeliverable:
     repo_url: str
     commit_hash: str
     test_command: str
-    requirements: list[str]
+    requirements: DynArray[str]
 
 
 @allow_storage
@@ -317,7 +319,7 @@ class AgentReputationLedger(gl.Contract):
             raise gl.vm.UserError(f"Security verification failed: {e.message}")
         return verified
 
-    def _verify_completeness(self, repo_url: str, requirements: list[str]) -> dict:
+    def _verify_completeness(self, repo_url: str, requirements: DynArray[str]) -> dict:
         """Dimension D: Is everything present? Requirements coverage."""
         def work() -> dict:
             try:
@@ -441,7 +443,7 @@ class AgentReputationLedger(gl.Contract):
         repo_url: str,
         commit_hash: str,
         test_command: str,
-        requirements: list[str],
+        requirements: DynArray[str],
         deadline: int
     ) -> None:
         sender = gl.message.sender_address.as_hex
