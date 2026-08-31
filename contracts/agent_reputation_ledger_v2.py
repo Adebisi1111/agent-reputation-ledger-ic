@@ -543,8 +543,8 @@ class AgentReputationLedger(gl.Contract):
     # ---------- views ----------
 
     @gl.public.view
-    def get_reputation(self, agent: Address) -> str:
-        agent_hex = Address(agent).as_hex
+    def get_reputation(self, agent: str) -> str:
+        agent_hex = agent
         rec = self.agents.get(agent_hex, None)
         if rec is None:
             return json.dumps({
