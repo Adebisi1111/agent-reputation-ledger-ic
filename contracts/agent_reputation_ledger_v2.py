@@ -183,16 +183,10 @@ class AgentReputationLedger(gl.Contract):
                 f"2. Do the tests appear to cover the main functionality?\n"
                 f"3. Are there any obvious runtime errors or import failures?\n"
                 f"4. Does the code structure suggest tests would pass?\n\n"
-                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\", \"tests_found\": true/false, \"issues\": [...]}}"
+                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\"}}"
             )
             res = gl.nondet.exec_prompt(prompt, response_format="json")
-            score = int(res.get("score", 0))
-            return {
-                "score": max(0, min(100, score)),
-                "reasoning": res.get("reasoning", ""),
-                "tests_found": res.get("tests_found", False),
-                "issues": res.get("issues", [])
-            }
+            return {"score": max(0, min(100, int(res.get("score", 0))))}
 
         def validator(leaders_res) -> bool:
             if not isinstance(leaders_res, gl.vm.Return):
@@ -208,7 +202,6 @@ class AgentReputationLedger(gl.Contract):
                 mine = work()
             except Exception:
                 return False
-            # Agree only if scores are within 15 points (allows for reasoning differences)
             return abs(mine["score"] - leaders_res.calldata["score"]) <= 15
 
         try:
@@ -235,16 +228,10 @@ class AgentReputationLedger(gl.Contract):
                 f"3. Are function/method names descriptive?\n"
                 f"4. Is the code complexity reasonable (not overly nested)?\n"
                 f"5. Are there configuration files (README, LICENSE, requirements.txt)?\n\n"
-                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\", \"strengths\": [...], \"weaknesses\": [...]}}"
+                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\"}}"
             )
             res = gl.nondet.exec_prompt(prompt, response_format="json")
-            score = int(res.get("score", 0))
-            return {
-                "score": max(0, min(100, score)),
-                "reasoning": res.get("reasoning", ""),
-                "strengths": res.get("strengths", []),
-                "weaknesses": res.get("weaknesses", [])
-            }
+            return {"score": max(0, min(100, int(res.get("score", 0))))}
 
         def validator(leaders_res) -> bool:
             if not isinstance(leaders_res, gl.vm.Return):
@@ -286,16 +273,10 @@ class AgentReputationLedger(gl.Contract):
                 f"3. Are there potential injection vulnerabilities?\n"
                 f"4. Is access control properly implemented?\n"
                 f"5. Are cryptographic operations using standard libraries?\n\n"
-                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\", \"vulnerabilities\": [...], \"risk_level\": \"low/medium/high\"}}"
+                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\"}}"
             )
             res = gl.nondet.exec_prompt(prompt, response_format="json")
-            score = int(res.get("score", 0))
-            return {
-                "score": max(0, min(100, score)),
-                "reasoning": res.get("reasoning", ""),
-                "vulnerabilities": res.get("vulnerabilities", []),
-                "risk_level": res.get("risk_level", "medium")
-            }
+            return {"score": max(0, min(100, int(res.get("score", 0))))}
 
         def validator(leaders_res) -> bool:
             if not isinstance(leaders_res, gl.vm.Return):
@@ -336,16 +317,10 @@ class AgentReputationLedger(gl.Contract):
                 f"1. For each requirement, is there evidence it's implemented?\n"
                 f"2. Are there any requirements with no corresponding implementation?\n"
                 f"3. Are edge cases handled?\n\n"
-                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\", \"covered_requirements\": [...], \"missing_requirements\": [...]}}"
+                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\"}}"
             )
             res = gl.nondet.exec_prompt(prompt, response_format="json")
-            score = int(res.get("score", 0))
-            return {
-                "score": max(0, min(100, score)),
-                "reasoning": res.get("reasoning", ""),
-                "covered_requirements": res.get("covered_requirements", []),
-                "missing_requirements": res.get("missing_requirements", [])
-            }
+            return {"score": max(0, min(100, int(res.get("score", 0))))}
 
         def validator(leaders_res) -> bool:
             if not isinstance(leaders_res, gl.vm.Return):
@@ -369,30 +344,18 @@ class AgentReputationLedger(gl.Contract):
             raise gl.vm.UserError(f"Completeness verification failed: {e.message}")
         return verified
 
-    # ---------- consensus aggregation ----------
-
-    def _aggregate_consensus(self, job_id: str, deliverable: CodeDeliverable) -> VerificationResult:
-        """Run all verification dimensions and aggregate via weighted consensus."""
-        repo_url = deliverable.repo_url
-        commit_hash = deliverable.commit_hash
-        test_command = deliverable.test_command
-        requirements = deliverable.requirements
-
-        # Each dimension is verified independently with its own consensus
-        functional = self._verify_functional(repo_url, commit_hash, test_command)
-        quality = self._verify_quality(repo_url, commit_hash)
-        security = self._verify_security(repo_url, commit_hash)
-        completeness = self._verify_completeness(repo_url, requirements)
-
-        # Weighted aggregation
+    def _compute_verdict(self, functional: int, quality: int, security: int, completeness: int) -> tuple:
+        """Compute overall score and verdict from dimension scores.
+        
+        Returns (overall_score, verdict) tuple.
+        """
         overall = (
-            functional["score"] * WEIGHT_FUNCTIONAL +
-            quality["score"] * WEIGHT_QUALITY +
-            security["score"] * WEIGHT_SECURITY +
-            completeness["score"] * WEIGHT_COMPLETENESS
+            functional * WEIGHT_FUNCTIONAL +
+            quality * WEIGHT_QUALITY +
+            security * WEIGHT_SECURITY +
+            completeness * WEIGHT_COMPLETENESS
         ) // 100
 
-        # Verdict thresholds
         if overall >= PASS_THRESHOLD:
             verdict = "PASS"
         elif overall >= PARTIAL_THRESHOLD:
@@ -400,23 +363,78 @@ class AgentReputationLedger(gl.Contract):
         else:
             verdict = "FAIL"
 
-        # Evidence hash for auditability
-        evidence_str = json.dumps({
-            "functional": functional,
-            "quality": quality,
-            "security": security,
-            "completeness": completeness
-        }, sort_keys=True)
-        evidence_hash = str(hash(evidence_str))
+        return overall, verdict
+
+    def _aggregate_consensus(self, job_id: str, deliverable: CodeDeliverable) -> VerificationResult:
+        """Run all verification dimensions and aggregate via weighted consensus.
+        
+        CRITICAL FIX: Validators must agree on the FINAL VERDICT, not just individual
+        scores. This ensures the economic outcome (slash vs no slash) is preserved
+        across all validators.
+        
+        Previous design flaw: Each dimension accepted leader score within 15 points.
+        This allowed validator-compatible scores to cross PASS/PARTIAL/FAIL thresholds
+        and change the economic outcome.
+        
+        New design: Validators re-run ALL dimensions and compare the FINAL VERDICT.
+        """
+        repo_url = deliverable.repo_url
+        commit_hash = deliverable.commit_hash
+        test_command = deliverable.test_command
+        requirements = deliverable.requirements
+
+        # Leader: run all dimensions and compute verdict
+        def leader_work() -> dict:
+            functional = self._verify_functional(repo_url, commit_hash, test_command)
+            quality = self._verify_quality(repo_url, commit_hash)
+            security = self._verify_security(repo_url, commit_hash)
+            completeness = self._verify_completeness(repo_url, requirements)
+            
+            overall, verdict = self._compute_verdict(
+                functional["score"], quality["score"], security["score"], completeness["score"]
+            )
+            
+            return {
+                "functional": functional["score"],
+                "quality": quality["score"],
+                "security": security["score"],
+                "completeness": completeness["score"],
+                "overall": overall,
+                "verdict": verdict
+            }
+
+        # Validator: re-run ALL dimensions and compare FINAL VERDICT
+        def validator(leaders_res) -> bool:
+            if not isinstance(leaders_res, gl.vm.Return):
+                leader_msg = getattr(leaders_res, "message", "")
+                try:
+                    leader_work()
+                    return False
+                except gl.vm.UserError as e:
+                    return str(e.message) == str(leader_msg)
+                except Exception:
+                    return False
+            try:
+                mine = leader_work()
+            except Exception:
+                return False
+            # CRITICAL: Agree only if the FINAL VERDICT matches
+            # This preserves the economic outcome (slash vs no slash)
+            return mine["verdict"] == leaders_res.calldata["verdict"]
+
+        try:
+            verified = gl.vm.run_nondet_unsafe(leader_work, validator)
+        except gl.vm.UserError as e:
+            raise gl.vm.UserError(f"Consensus failed: {e.message}")
 
         return VerificationResult(
-            functional_score=u256(functional["score"]),
-            quality_score=u256(quality["score"]),
-            security_score=u256(security["score"]),
-            completeness_score=u256(completeness["score"]),
-            overall_score=u256(overall),
-            verdict=verdict,
-            evidence_hash=evidence_hash
+            functional_score=u256(verified["functional"]),
+            quality_score=u256(verified["quality"]),
+            security_score=u256(verified["security"]),
+            completeness_score=u256(verified["completeness"]),
+            overall_score=u256(verified["overall"]),
+            verdict=verified["verdict"],
+            evidence_hash=str(hash(json.dumps(verified, sort_keys=True)))
         )
 
     # ---------- writes ----------
