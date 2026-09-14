@@ -3,8 +3,8 @@
 A GenLayer Intelligent Contract for building transparent, tamper-resistant reputation for autonomous agents. Reputation is backed by value at risk (staked GEN). Agents stake to participate, and lost disputes trigger slashing. This is an economic-security primitive — not just a counter.
 
 - **Contract:** `contracts/agent_reputation_ledger_v2.py`
-- **Deployed (Bradbury):** `0x06657F3D9611F8795dB386c46B64661b8EB780d5`
-- **Explorer:** https://explorer-bradbury.genlayer.com/address/0x06657F3D9611F8795dB386c46B64661b8EB780d5
+- **Deployed (Bradbury):** `0x45B53778e9aC074B0175109f9b70004023926ed5`
+- **Explorer:** https://explorer-bradbury.genlayer.com/address/0x45B53778e9aC074B0175109f9b70004023926ed5
 
 ## Why it's distinct
 
