@@ -59,9 +59,6 @@ TIER_ESTABLISHED = "ESTABLISHED"
 TIER_NEW = "NEW"
 TIER_UNPROVEN = "UNPROVEN"
 
-# Validator tolerance for score comparison (±15 points)
-SCORE_TOLERANCE = 15
-
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -220,6 +217,27 @@ class AgentReputationLedger(gl.Contract):
             "verdict": verdict
         }
 
+    def _verify_consensus_payload(self, proposed: dict, validator: dict) -> bool:
+        """Verify that every stored score matches between leader and validator.
+        
+        Explicitly binds the categorical verdict AND every sub-score that
+        affects reputation tiers.
+        """
+        try:
+            if proposed["verdict"] != validator["verdict"]:
+                return False
+            if proposed["functional"] != validator["functional"]:
+                return False
+            if proposed["quality"] != validator["quality"]:
+                return False
+            if proposed["security"] != validator["security"]:
+                return False
+            if proposed["completeness"] != validator["completeness"]:
+                return False
+            return True
+        except (KeyError, TypeError):
+            return False
+
     def _aggregate_consensus(self, job_id: str, deliverable: CodeDeliverable) -> VerificationResult:
         """Single non-deterministic consensus flow.
         
@@ -249,16 +267,7 @@ class AgentReputationLedger(gl.Contract):
             except Exception:
                 return False
             
-            # FIX: Compare EVERY stored score, not just the verdict.
-            # Each dimension is independently bound within tolerance.
-            leader = leaders_res.calldata
-            return (
-                abs(mine["functional"] - leader["functional"]) <= SCORE_TOLERANCE and
-                abs(mine["quality"] - leader["quality"]) <= SCORE_TOLERANCE and
-                abs(mine["security"] - leader["security"]) <= SCORE_TOLERANCE and
-                abs(mine["completeness"] - leader["completeness"]) <= SCORE_TOLERANCE and
-                mine["verdict"] == leader["verdict"]
-            )
+            return self._verify_consensus_payload(leaders_res.calldata, mine)
 
         try:
             verified = gl.vm.run_nondet_unsafe(leader_work, validator)
