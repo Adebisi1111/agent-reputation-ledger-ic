@@ -1,10 +1,10 @@
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
-# Agent Reputation Ledger v2 — Multi-Dimensional Code Verification
+# Agent Reputation Ledger v3 — Single-Flow Multi-Dimensional Verification
 #
 # This contract implements a reputation system for autonomous agent code delivery.
 # It uses GenLayer's comparative consensus to verify code deliverables across
-# multiple independent dimensions that no single model can simultaneously evaluate.
+# multiple independent dimensions evaluated in a SINGLE non-deterministic flow.
 #
 # WHY GENLAYER IS NECESSARY:
 # A single LLM can review code but CANNOT simultaneously:
@@ -14,18 +14,13 @@
 #   4. Verify completeness against requirements with independent reasoning
 #
 # GenLayer consensus enables parallel independent verification where each validator
-# specializes in one dimension. This catches errors that any single model would miss.
+# re-runs the full evaluation and compares EVERY stored score.
 #
 # CONSENSUS DESIGN:
-# - Leader: Initial assessment across all dimensions
-# - Validator A: Functional verification (test execution, output validation)
-# - Validator B: Quality audit (structure, documentation, maintainability)
-# - Validator C: Security review (vulnerability patterns, attack vectors)
-# - Validator D: Completeness check (requirements coverage, edge cases)
-#
-# Each validator independently fetches evidence and evaluates. Validators detect
-# leader errors through contradiction: if leader says PASS but tests fail,
-# validators disagree and consensus reflects the evidence.
+# - Single non-deterministic flow evaluates all 4 dimensions at once
+# - Leader: Evaluates all dimensions, computes overall score and verdict
+# - Validator: Re-runs full evaluation and compares EVERY score with tolerance
+# - Economic outcome (slash vs no slash) preserved through exact verdict matching
 #
 # VERDICT WEIGHTING:
 # - Functional (40%): Does it work?
@@ -63,6 +58,9 @@ TIER_TRUSTED = "TRUSTED"
 TIER_ESTABLISHED = "ESTABLISHED"
 TIER_NEW = "NEW"
 TIER_UNPROVEN = "UNPROVEN"
+
+# Validator tolerance for score comparison (±15 points)
+SCORE_TOLERANCE = 15
 
 
 # ---------------------------------------------------------------------------
@@ -163,247 +161,79 @@ class AgentReputationLedger(gl.Contract):
         rec.slashed_total = u256(int(rec.slashed_total) + slash)
         return rec
 
-    # ----------
+    # ---------- single-flow verification ----------
 
-    def _verify_functional(self, repo_url: str, commit_hash: str, test_command: str) -> dict:
-        """Dimension A: Does the code work? Execute tests and verify outputs."""
-        def work() -> dict:
-            try:
-                evidence = gl.nondet.web.render(repo_url, mode="text")
-            except Exception:
-                raise gl.vm.UserError("REPO_UNREACHABLE")
-
-            prompt = (
-                f"Repository: {repo_url}\n"
-                f"Commit: {commit_hash}\n"
-                f"Test command: {test_command}\n"
-                f"Repository content (first 8000 chars):\n{evidence[:8000]}\n\n"
-                f"Evaluate FUNCTIONAL CORRECTNESS:\n"
-                f"1. Are there tests in the repository?\n"
-                f"2. Do the tests appear to cover the main functionality?\n"
-                f"3. Are there any obvious runtime errors or import failures?\n"
-                f"4. Does the code structure suggest tests would pass?\n\n"
-                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\"}}"
-            )
-            res = gl.nondet.exec_prompt(prompt, response_format="json")
-            return {"score": max(0, min(100, int(res.get("score", 0))))}
-
-        def validator(leaders_res) -> bool:
-            if not isinstance(leaders_res, gl.vm.Return):
-                leader_msg = getattr(leaders_res, "message", "")
-                try:
-                    work()
-                    return False
-                except gl.vm.UserError as e:
-                    return str(e.message) == str(leader_msg)
-                except Exception:
-                    return False
-            try:
-                mine = work()
-            except Exception:
-                return False
-            return abs(mine["score"] - leaders_res.calldata["score"]) <= 15
-
-        try:
-            verified = gl.vm.run_nondet_unsafe(work, validator)
-        except gl.vm.UserError as e:
-            raise gl.vm.UserError(f"Functional verification failed: {e.message}")
-        return verified
-
-    def _verify_quality(self, repo_url: str, commit_hash: str) -> dict:
-        """Dimension B: Is the code well-built? Structure, docs, maintainability."""
-        def work() -> dict:
-            try:
-                evidence = gl.nondet.web.render(repo_url, mode="text")
-            except Exception:
-                raise gl.vm.UserError("REPO_UNREACHABLE")
-
-            prompt = (
-                f"Repository: {repo_url}\n"
-                f"Commit: {commit_hash}\n"
-                f"Repository content (first 8000 chars):\n{evidence[:8000]}\n\n"
-                f"Evaluate CODE QUALITY:\n"
-                f"1. Is the code well-organized (modules, separation of concerns)?\n"
-                f"2. Are there docstrings and comments?\n"
-                f"3. Are function/method names descriptive?\n"
-                f"4. Is the code complexity reasonable (not overly nested)?\n"
-                f"5. Are there configuration files (README, LICENSE, requirements.txt)?\n\n"
-                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\"}}"
-            )
-            res = gl.nondet.exec_prompt(prompt, response_format="json")
-            return {"score": max(0, min(100, int(res.get("score", 0))))}
-
-        def validator(leaders_res) -> bool:
-            if not isinstance(leaders_res, gl.vm.Return):
-                leader_msg = getattr(leaders_res, "message", "")
-                try:
-                    work()
-                    return False
-                except gl.vm.UserError as e:
-                    return str(e.message) == str(leader_msg)
-                except Exception:
-                    return False
-            try:
-                mine = work()
-            except Exception:
-                return False
-            return abs(mine["score"] - leaders_res.calldata["score"]) <= 15
-
-        try:
-            verified = gl.vm.run_nondet_unsafe(work, validator)
-        except gl.vm.UserError as e:
-            raise gl.vm.UserError(f"Quality verification failed: {e.message}")
-        return verified
-
-    def _verify_security(self, repo_url: str, commit_hash: str) -> dict:
-        """Dimension C: Is it safe? Vulnerability patterns, attack vectors."""
-        def work() -> dict:
-            try:
-                evidence = gl.nondet.web.render(repo_url, mode="text")
-            except Exception:
-                raise gl.vm.UserError("REPO_UNREACHABLE")
-
-            prompt = (
-                f"Repository: {repo_url}\n"
-                f"Commit: {commit_hash}\n"
-                f"Repository content (first 8000 chars):\n{evidence[:8000]}\n\n"
-                f"Evaluate SECURITY:\n"
-                f"1. Are there any hardcoded secrets or credentials?\n"
-                f"2. Is user input properly validated and sanitized?\n"
-                f"3. Are there potential injection vulnerabilities?\n"
-                f"4. Is access control properly implemented?\n"
-                f"5. Are cryptographic operations using standard libraries?\n\n"
-                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\"}}"
-            )
-            res = gl.nondet.exec_prompt(prompt, response_format="json")
-            return {"score": max(0, min(100, int(res.get("score", 0))))}
-
-        def validator(leaders_res) -> bool:
-            if not isinstance(leaders_res, gl.vm.Return):
-                leader_msg = getattr(leaders_res, "message", "")
-                try:
-                    work()
-                    return False
-                except gl.vm.UserError as e:
-                    return str(e.message) == str(leader_msg)
-                except Exception:
-                    return False
-            try:
-                mine = work()
-            except Exception:
-                return False
-            return abs(mine["score"] - leaders_res.calldata["score"]) <= 15
-
-        try:
-            verified = gl.vm.run_nondet_unsafe(work, validator)
-        except gl.vm.UserError as e:
-            raise gl.vm.UserError(f"Security verification failed: {e.message}")
-        return verified
-
-    def _verify_completeness(self, repo_url: str, requirements: DynArray[str]) -> dict:
-        """Dimension D: Is everything present? Requirements coverage."""
-        def work() -> dict:
-            try:
-                evidence = gl.nondet.web.render(repo_url, mode="text")
-            except Exception:
-                raise gl.vm.UserError("REPO_UNREACHABLE")
-
-            reqs_text = "\n".join(f"- {r}" for r in requirements)
-            prompt = (
-                f"Repository: {repo_url}\n"
-                f"Requirements:\n{reqs_text}\n"
-                f"Repository content (first 8000 chars):\n{evidence[:8000]}\n\n"
-                f"Evaluate COMPLETENESS:\n"
-                f"1. For each requirement, is there evidence it's implemented?\n"
-                f"2. Are there any requirements with no corresponding implementation?\n"
-                f"3. Are edge cases handled?\n\n"
-                f"Respond as JSON: {{\"score\": 0-100, \"reasoning\": \"...\"}}"
-            )
-            res = gl.nondet.exec_prompt(prompt, response_format="json")
-            return {"score": max(0, min(100, int(res.get("score", 0))))}
-
-        def validator(leaders_res) -> bool:
-            if not isinstance(leaders_res, gl.vm.Return):
-                leader_msg = getattr(leaders_res, "message", "")
-                try:
-                    work()
-                    return False
-                except gl.vm.UserError as e:
-                    return str(e.message) == str(leader_msg)
-                except Exception:
-                    return False
-            try:
-                mine = work()
-            except Exception:
-                return False
-            return abs(mine["score"] - leaders_res.calldata["score"]) <= 15
-
-        try:
-            verified = gl.vm.run_nondet_unsafe(work, validator)
-        except gl.vm.UserError as e:
-            raise gl.vm.UserError(f"Completeness verification failed: {e.message}")
-        return verified
-
-    def _compute_verdict(self, functional: int, quality: int, security: int, completeness: int) -> tuple:
-        """Compute overall score and verdict from dimension scores.
+    def _evaluate_all_dimensions(self, repo_url: str, commit_hash: str, test_command: str, requirements: DynArray[str]) -> dict:
+        """Evaluate all 4 dimensions in a SINGLE non-deterministic prompt.
         
-        Returns (overall_score, verdict) tuple.
+        This is the ONLY non-deterministic call in the contract.
+        Validators re-run this same function and compare every stored score.
         """
+        reqs_text = "\n".join(f"- {r}" for r in requirements)
+        
+        prompt = (
+            f"Evaluate this code repository across 4 dimensions.\n\n"
+            f"Repository: {repo_url}\n"
+            f"Commit: {commit_hash}\n"
+            f"Test command: {test_command}\n"
+            f"Requirements:\n{reqs_text}\n\n"
+            f"Evaluate these 4 dimensions:\n\n"
+            f"1. FUNCTIONAL CORRECTNESS (weight 40%): Does the code work? Are there tests? "
+            f"Do they cover main functionality? Any obvious runtime errors?\n\n"
+            f"2. CODE QUALITY (weight 25%): Is it well-organized? Docstrings? "
+            f"Descriptive names? Reasonable complexity? Config files present?\n\n"
+            f"3. SECURITY (weight 25%): Hardcoded secrets? Input validation? "
+            f"Injection vulnerabilities? Access control? Standard crypto libraries?\n\n"
+            f"4. COMPLETENESS (weight 10%): Are all requirements implemented? "
+            f"Edge cases handled?\n\n"
+            f"Respond as JSON: {{\"functional\": 0-100, \"quality\": 0-100, "
+            f"\"security\": 0-100, \"completeness\": 0-100, \"reasoning\": \"brief explanation\"}}"
+        )
+        
+        res = gl.nondet.exec_prompt(prompt, response_format="json")
+        
+        functional = max(0, min(100, int(res.get("functional", 0))))
+        quality = max(0, min(100, int(res.get("quality", 0))))
+        security = max(0, min(100, int(res.get("security", 0))))
+        completeness = max(0, min(100, int(res.get("completeness", 0))))
+        
         overall = (
             functional * WEIGHT_FUNCTIONAL +
             quality * WEIGHT_QUALITY +
             security * WEIGHT_SECURITY +
             completeness * WEIGHT_COMPLETENESS
         ) // 100
-
+        
         if overall >= PASS_THRESHOLD:
             verdict = "PASS"
         elif overall >= PARTIAL_THRESHOLD:
             verdict = "PARTIAL"
         else:
             verdict = "FAIL"
-
-        return overall, verdict
+        
+        return {
+            "functional": functional,
+            "quality": quality,
+            "security": security,
+            "completeness": completeness,
+            "overall": overall,
+            "verdict": verdict
+        }
 
     def _aggregate_consensus(self, job_id: str, deliverable: CodeDeliverable) -> VerificationResult:
-        """Run all verification dimensions and aggregate via weighted consensus.
+        """Single non-deterministic consensus flow.
         
-        CRITICAL FIX: Validators must agree on the FINAL VERDICT, not just individual
-        scores. This ensures the economic outcome (slash vs no slash) is preserved
-        across all validators.
-        
-        Previous design flaw: Each dimension accepted leader score within 15 points.
-        This allowed validator-compatible scores to cross PASS/PARTIAL/FAIL thresholds
-        and change the economic outcome.
-        
-        New design: Validators re-run ALL dimensions and compare the FINAL VERDICT.
+        FIX: Only ONE nondeterministic call (exec_prompt) instead of four nested calls.
+        Validator re-runs the full evaluation and compares EVERY stored score.
         """
         repo_url = deliverable.repo_url
         commit_hash = deliverable.commit_hash
         test_command = deliverable.test_command
         requirements = deliverable.requirements
 
-        # Leader: run all dimensions and compute verdict
         def leader_work() -> dict:
-            functional = self._verify_functional(repo_url, commit_hash, test_command)
-            quality = self._verify_quality(repo_url, commit_hash)
-            security = self._verify_security(repo_url, commit_hash)
-            completeness = self._verify_completeness(repo_url, requirements)
-            
-            overall, verdict = self._compute_verdict(
-                functional["score"], quality["score"], security["score"], completeness["score"]
-            )
-            
-            return {
-                "functional": functional["score"],
-                "quality": quality["score"],
-                "security": security["score"],
-                "completeness": completeness["score"],
-                "overall": overall,
-                "verdict": verdict
-            }
+            return self._evaluate_all_dimensions(repo_url, commit_hash, test_command, requirements)
 
-        # Validator: re-run ALL dimensions and compare FINAL VERDICT
         def validator(leaders_res) -> bool:
             if not isinstance(leaders_res, gl.vm.Return):
                 leader_msg = getattr(leaders_res, "message", "")
@@ -418,9 +248,17 @@ class AgentReputationLedger(gl.Contract):
                 mine = leader_work()
             except Exception:
                 return False
-            # CRITICAL: Agree only if the FINAL VERDICT matches
-            # This preserves the economic outcome (slash vs no slash)
-            return mine["verdict"] == leaders_res.calldata["verdict"]
+            
+            # FIX: Compare EVERY stored score, not just the verdict.
+            # Each dimension is independently bound within tolerance.
+            leader = leaders_res.calldata
+            return (
+                abs(mine["functional"] - leader["functional"]) <= SCORE_TOLERANCE and
+                abs(mine["quality"] - leader["quality"]) <= SCORE_TOLERANCE and
+                abs(mine["security"] - leader["security"]) <= SCORE_TOLERANCE and
+                abs(mine["completeness"] - leader["completeness"]) <= SCORE_TOLERANCE and
+                mine["verdict"] == leader["verdict"]
+            )
 
         try:
             verified = gl.vm.run_nondet_unsafe(leader_work, validator)
@@ -511,7 +349,7 @@ class AgentReputationLedger(gl.Contract):
         if rec is None:
             raise gl.vm.UserError("Agent not registered.")
 
-        # Multi-dimensional consensus verification
+        # Single-flow consensus verification
         result = self._aggregate_consensus(job_id, job.deliverable)
 
         # Update reputation based on verdict
